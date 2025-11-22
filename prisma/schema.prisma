@@ -1,0 +1,209 @@
+// Prisma Schema for SNS Engagement App
+// SQLite for development, PostgreSQL for production
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// User - ユーザー情報とAPI設定
+// ============================================
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // API Keys (encrypted in production)
+  claudeApiKey    String?
+  instagramApiKey String?
+  threadsApiKey   String?
+  twitterApiKey   String?
+
+  // ユーザー設定
+  targetAudience     String? // JSON array stored as string
+  contentCategories  String? // JSON array stored as string
+  activePlatforms    String  @default("[\"threads\"]") // JSON array: ["threads", "instagram", "twitter"]
+
+  // Relations
+  buzzAnalyses      BuzzAnalysis[]
+  optimizedContents OptimizedContent[]
+  postSchedules     PostSchedule[]
+  platformScores    PlatformScore[]
+  strategies        Strategy[]
+
+  @@map("users")
+}
+
+// ============================================
+// BuzzAnalysis - バズ分析結果
+// ============================================
+model BuzzAnalysis {
+  id          String   @id @default(cuid())
+  userId      String
+  platform    Platform
+  originalUrl String
+  impressions Int      @default(0)
+  engagement  Int      @default(0)
+  transcript  String   // Original content text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Content Structure (stored as JSON)
+  hook              String? // Opening hook
+  mainPoints        String? // JSON array of main points
+  cta               String? // Call to Action
+  emotionalTriggers String? // JSON array of emotional triggers
+  keyPoints         String? // JSON array of key points
+
+  // Relations
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  optimizedContents OptimizedContent[]
+
+  @@index([userId])
+  @@index([platform])
+  @@index([createdAt])
+  @@map("buzz_analyses")
+}
+
+// ============================================
+// OptimizedContent - 最適化コンテンツ
+// ============================================
+model OptimizedContent {
+  id                   String   @id @default(cuid())
+  userId               String
+  originalAnalysisId   String?
+  targetPlatform       Platform
+  content              String   // Optimized content text
+  hashtags             String?  // JSON array of hashtags
+  bestPostTime         DateTime?
+  expectedImpressions  Int      @default(0)
+  mode                 PostMode @default(impression)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  // Relations
+  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  originalAnalysis BuzzAnalysis? @relation(fields: [originalAnalysisId], references: [id], onDelete: SetNull)
+  postSchedules    PostSchedule[]
+
+  @@index([userId])
+  @@index([targetPlatform])
+  @@index([mode])
+  @@index([createdAt])
+  @@map("optimized_contents")
+}
+
+// ============================================
+// PostSchedule - 投稿スケジュール
+// ============================================
+model PostSchedule {
+  id          String         @id @default(cuid())
+  userId      String
+  contentId   String
+  scheduledAt DateTime
+  mode        PostMode       @default(impression)
+  status      ScheduleStatus @default(pending)
+  postedAt    DateTime?
+  errorMessage String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  // Relations
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content OptimizedContent @relation(fields: [contentId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([scheduledAt])
+  @@index([status])
+  @@map("post_schedules")
+}
+
+// ============================================
+// PlatformScore - 好感度スコア履歴
+// ============================================
+model PlatformScore {
+  id               String   @id @default(cuid())
+  userId           String
+  platform         Platform
+  overallScore     Float    @default(0)
+  engagementScore  Float    @default(0) // エンゲージメント貢献度
+  consistencyScore Float    @default(0) // 投稿一貫性
+  trendScore       Float    @default(0) // トレンド参加度
+  communityScore   Float    @default(0) // コミュニティ貢献度
+  calculatedAt     DateTime @default(now())
+
+  // Score factors (stored as JSON)
+  factors String? // JSON array of ScoreFactor objects
+
+  // User behavior data snapshot (stored as JSON)
+  behaviorData String? // JSON of UserBehaviorData
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([platform])
+  @@index([calculatedAt])
+  @@map("platform_scores")
+}
+
+// ============================================
+// Strategy - 戦略設定
+// ============================================
+model Strategy {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String   @default("Default Strategy")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Engagement ratios
+  impressionRatio Float @default(0.9) // 0-1 (recommended: 0.8-0.9)
+  expressionRatio Float @default(0.1) // 0-1 (recommended: 0.1-0.2)
+
+  // Weekly expression days (JSON array of day numbers: 0=Sunday, 6=Saturday)
+  weeklyExpressionDays String @default("[0, 6]")
+
+  // Comment strategy settings
+  commentEnabled          Boolean @default(true)
+  targetTrendingPosts     Boolean @default(true)
+  maxCommentsPerDay       Int     @default(10)
+  avoidNegativeComments   Boolean @default(true)
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, isActive])
+  @@index([userId])
+  @@map("strategies")
+}
+
+// ============================================
+// Enums
+// ============================================
+
+enum Platform {
+  threads
+  instagram
+  twitter
+}
+
+enum PostMode {
+  impression // インプレッション獲得モード
+  expression // 自己表現モード
+}
+
+enum ScheduleStatus {
+  pending
+  posted
+  failed
+  cancelled
+}
